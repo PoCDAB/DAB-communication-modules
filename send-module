@@ -1,0 +1,97 @@
+#!/usr/bin/env python
+"""
+Send Module
+Send a file to Broadcast Partners for them to broadcast over DAB+.
+This
+"""
+import argparse
+import os
+import sys
+import subprocess
+import codecs
+from time import sleep
+import array
+from shutil import which
+
+parser = argparse.ArgumentParser(
+    description="This module can send messages to Broadcast Partners for them to broadcast.")
+parser.add_argument("-m", "--message", help="The message to send")
+parser.add_argument("-f", "--file", help="Read the message parameter as a file path to the message to send.",
+                    action="store_true")
+parser.add_argument("-v", "--verbose", help="Increase output verbosity.",
+                    action="store_true")
+args = parser.parse_args()
+
+
+# debug / verbose print function
+def vprint(*rgs, **kwrgs):
+    if args.verbose:
+        print(" ".join(map(str, rgs)), **kwrgs)
+
+
+# error if script does not have something it needs
+if which("nc") is None:
+    vprint("Error: libressl-netcat (nc) is not installed.")  # gnu-netcat hangs, this version does not
+    quit(1)
+
+# validate CLI parameters
+if args.message is None:
+    vprint("No message specified")
+    quit(1)
+
+# server of Broadcast Partners, where packets you send with UDP will be broadcasted
+# your IP has to be whitelisted
+SEND_ADDRESS = "92.70.3.242"
+SEND_PORT = 4071
+
+SLEEP_TIME = 1  # sleep time between transmissions (in seconds)
+
+
+def create_checksum(string):  # creates checksum so the receive side can determine if all data was received correctly
+    string = string.encode()
+    byteArray = array.array('b', string)
+    checksum = 0
+    for i in range(len(byteArray)):
+        checksum ^= byteArray[i]
+    checksum = hex(checksum)
+    return checksum[2:]
+
+
+if args.file:
+    # filepath = sys.argv[1]  # get filepath from arguments
+    filepath = args.message
+    filename = filepath.rsplit('/', 1)[-1]
+    # create data format as [filename]|[filedata][checksum]|
+    data = filename + '|'
+    with codecs.open(filepath, 'r', encoding='utf-8', errors='ignore') as file:
+        data += file.read()
+else:
+    data = args.message  # TODO does not work, needs filename
+    print("This is not possible yet, only files are supported.")
+    quit(1)
+
+data += create_checksum(data)
+data += '|'
+data = data.replace('\x00', '\\x00')
+
+splitData = []  # list for all the data
+splitamount = 690  # amount of bytes per segment - 1 for the packetnumber FIRST  was 58
+for x in range(0, len(data), splitamount):  # splits all data in segments
+    splitData.append(data[x: x + splitamount])
+
+# package number starts at 0 and then goes from 1 till 9, then
+# resets to 1 (0 is reserved for start of transmission)
+packetNumber = 0
+
+print(f"Sending {len(data)} bytes: {data}")
+for datasegment in splitData:  # sends all segments
+    packet = str(packetNumber) + datasegment
+    print(f"{packetNumber}: {datasegment}")
+    command = r'echo -n "' + str(packetNumber) + datasegment + '" | nc -u 92.70.3.242 4071 -w' + str(SLEEP_TIME)
+    print("Issuing command:", command)
+    os.system(command)
+    packetNumber += 1
+    if packetNumber > 9:  # resets packetnumber to 1 when it is over 9
+        packetNumber = 1
+    sleep(1)
+print(f"Done sending.")

@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+"""
+Sends a message to the API associated with the web application of this PoC.
+
+User: admin
+Pass: admin
+
+Database to see if messages are appearing in database:
+http://autopho.be:65533/admin/webapp/dab/
+
+API page:
+http://autopho.be:65533/api/V1/dab/
+"""
+import json
+from base64 import b64encode
+from http.client import HTTPConnection
+
+# create API connection
+baseurl = "autopho.be"
+port = 65533
+conn = HTTPConnection(baseurl, port, timeout=10)
+userAndPass = b64encode(b"admin:admin").decode()
+headers = {"Authorization": f"Basic {userAndPass}", "Content-type": "application/json", "Accept": "application/json"}
+
+
+def is_API_reachable():
+    connection = HTTPConnection(baseurl, port)
+    connection.request("GET", "/")
+    r = connection.getresponse()
+    connection.close()
+    return r.status == 200
+
+
+def send_to_API(message):
+    print("Sending to API:", message)
+    conn.request("POST", "/api/V1/dab/", message, headers)
+
+    res = conn.getresponse()
+    if res.status == 201:
+        print("Successfully interacted with API.")
+        return True
+
+    print(f"API response:")
+    print("Data:", res.read())
+    print("Status:", res.status)
+    print("Reason:", res.reason)
+
+
+message_dict = {"message_id": 1, "message_type": 2, "ship_id": "shipid1", "message": "TestMessage"}
+message_json = json.dumps(message_dict)
+
+if is_API_reachable():
+    send_to_API(message_json)
+else:
+    print("API busy, message not send.")
+    quit(1)
+conn.close()

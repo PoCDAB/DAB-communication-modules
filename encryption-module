@@ -1,0 +1,118 @@
+#!/usr/bin/env python
+"""
+Encryption Module
+
+This program is used on the coast and ship side to encrypt and decrypt messages.
+It uses AES-256, which is symmetric encryption. This means the key is the same for both the sender and receiver.
+It returns nothing and exit code 0 if something went wrong. To debug, pass --verbose as additional parameter.
+
+This module can be replaced by anything that does the same with the parameters.
+This means that any type of encryption can be used instead, as long it takes a message and a key as input.
+
+Examples:
+Encrypting a message:
+./encryption-module -k "ENCRYPTION_KEY" -m "MESSAGE_TO_ENCRYPT" -e
+Decryption a message:
+./encryption-module -k "DECRYPTION_KEY" -m "MESSAGE_TO_DECRYPT" -d
+"""
+import argparse
+import gnupg
+
+# setup CLI parameters
+parser = argparse.ArgumentParser(description="This module can encrypt and decrypt messages with AES-256.")
+parser.add_argument("-k", "--key", help="The key to encrypt/decrypt the message with.")
+parser.add_argument("-m", "--message", help="The message to encrypt/decrypt with the key.")
+parser.add_argument("-e", "--encrypt", help="Encrypt the message",
+                    action="store_true")
+parser.add_argument("-d", "--decrypt", help="Decrypt the message",
+                    action="store_true")
+parser.add_argument("-v", "--verbose", help="Increase output verbosity.",
+                    action="store_true")
+args = parser.parse_args()
+
+
+# debug / verbose print function
+def vprint(*rgs, **kwrgs):
+    if args.verbose:
+        print(" ".join(map(str, rgs)), **kwrgs)
+
+
+# validate CLI parameters
+# argparse can also do this with non-optional parameters
+# todo: it is not a convention to have required arguments as optional?
+vprint("Running tool in verbose mode.")
+if args.encrypt is None and args.decrypt is None:
+    print("No action specified.")
+    quit(1)
+if args.key is None:
+    print("No key specified.")
+    quit(1)
+if args.message is None:
+    print("No message specified.")
+    quit(1)
+
+# create python-gnupg instance
+# todo: this uses default home folder?
+gpg = gnupg.GPG()
+
+# python-gnupg adds padding to encrypted message
+# this is removed before sending, and added after sending, to save bandwidth
+TOP_PADDING = "-----BEGIN PGP MESSAGE-----"
+BOTTOM_PADDING = "-----END PGP MESSAGE-----"
+
+
+def remove_padding(message):
+    return message.replace(TOP_PADDING, "").replace(BOTTOM_PADDING, "").strip()
+
+
+def add_padding(message):
+    return f"{TOP_PADDING}\n{message}\n{BOTTOM_PADDING}"
+
+
+# return a message encrypted with the key
+def encrypt(key, message):
+    vprint(f"Encrypting following message with {key}:")
+    vprint(message)
+    vprint(f"Encrypting above message with {key}.")
+    try:
+        result = gpg.encrypt(message, recipients=None, passphrase=key, symmetric="AES256")
+    except Exception as e:
+        print("Encryption failed:", e)
+        quit(1)
+    vprint(f"Encryption status: {result.status}")
+    if result.status != "encryption ok":
+        print("Encryption status is not OK.")
+        quit(1)
+    result = remove_padding(result.data.decode())
+    return result
+
+
+# return a message decrypted with the key
+def decrypt(key, message):
+    message = add_padding(message)
+    vprint(f"Decrypting following message with {key}:")
+    vprint(message)
+    vprint(f"Decrypting above message with {key}")
+    try:
+        result = gpg.decrypt(message, passphrase=key)
+    except Exception as e:
+        print("Decryption failed:", e)
+        quit(1)
+    vprint(f"Decryption status: {result.status}")
+    vprint(result.status)
+    if result.status != "decryption ok":
+        print("Decryption status is not OK.")
+        quit(1)
+    result = result.data.decode()
+    return result
+
+
+# handle users request
+if args.encrypt:
+    print(encrypt(args.key, args.message))
+elif args.decrypt:
+    print(decrypt(args.key, args.message))
+else:
+    print("Command not recognized.")
+    quit(1)
+quit(0)

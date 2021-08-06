@@ -1,0 +1,30 @@
+#!/usr/bin/python
+import time
+
+from util.ProcessThread import ProcessThread
+
+command1 = ["ping", "google.com"]
+process1 = ProcessThread(command=command1,
+                         success_list=["completed Tutorial Island"],
+                         failed_list=["Response: DISABLED", "Stopped"],
+                         verbose=True)
+process1.setName("Pinger")
+command2 = ["sleep", "5"]
+process2 = ProcessThread(command=command2,
+                         success_list=["completed Tutorial Island"],
+                         failed_list=["Response: DISABLED", "Stopped"],
+                         verbose=True)
+process2.setName("Sleeper")
+
+count = 0
+try:
+    process1.start()
+    process2.start()
+    while True:
+        time.sleep(1)
+        count += 1
+        print("Seconds:", count)
+except:
+    process1.stop()
+    process2.stop()
+    print("Stopped")

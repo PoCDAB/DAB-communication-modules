@@ -1,0 +1,159 @@
+#!/usr/bin/env python
+import argparse
+import os
+import random
+from dataclasses import dataclass
+
+from watchdog.events import PatternMatchingEventHandler
+from watchdog.observers import Observer
+
+from util.ProcessThread import *
+
+parser = argparse.ArgumentParser(description="This module parses messages received on a ship.")
+parser.add_argument("-v", "--verbose", help="Increase output verbosity.",
+                    action="store_true")
+args = parser.parse_args()
+
+
+# debug / verbose print function
+def vprint(*rgs, **kwrgs):
+    if args.verbose:
+        print(" ".join(map(str, rgs)), **kwrgs)
+
+
+def create_if_not_exist(folder_path):
+    if not os.path.isdir(folder_path):
+        vprint("Creating folder", folder_path)
+        os.makedirs(folder_path)
+
+
+def exists(path):
+    return os.path.exists(path)
+
+
+# folders, create them if they do not exist
+FOLDER = os.path.expanduser("~/.dab/")
+create_if_not_exist(FOLDER)
+UNPROCESSED_MESSAGES_FOLDER = FOLDER + "unprocessed-messages/"
+create_if_not_exist(UNPROCESSED_MESSAGES_FOLDER)
+RECEIVED_MESSAGES_FOLDER = FOLDER + "received-messages/"
+create_if_not_exist(RECEIVED_MESSAGES_FOLDER)
+KEY_FOLDER = FOLDER + "keys/"
+
+if not exists(KEY_FOLDER):
+    print(f"Key folder does not exist at {KEY_FOLDER}.")
+    quit(1)
+
+
+@dataclass
+class Message:
+    id: int
+    type: int
+    recipient_id: int
+    content: str
+    signal_strength: float
+
+    def write_to_file(self, filename):
+        vprint(f"Writing {self} to {filename}")
+        with open(filename, "w") as file:
+            fun = lambda x: str(x) + "\n"  # temp function to format the entered lines
+            file.write(fun(self.id))
+            file.write(fun(self.type))
+            file.write(fun(self.signal_strength))
+            file.write(fun(self.content))
+
+
+def decrypt_with_key(key, message):
+    vprint(f"Decrypting {message} with {key}")
+
+    command = ["./encryption-module", "--key", key, "--message", message, "--decrypt"]
+    result = run_command(command)
+    vprint(f"Decryption result: {result}")
+    if result is not None:
+        return result.strip()  # a \n suffix seems to break stuff
+
+    return result
+
+
+def decrypt(message):
+    for entry in os.scandir(KEY_FOLDER):
+        key = read_file(entry.path)
+        decrypted_message = decrypt_with_key(key, message)
+        if decrypted_message is not None:
+            return decrypted_message
+    print("None of the keys worked for the incoming message")
+    quit(1)
+
+
+def parse_message(path):
+    with open(path) as file:
+        lines = file.readlines()
+        message_id = int(lines[0])
+        message_type = int(lines[1])
+        recipient_id = int(lines[2])
+
+        encrypted_content = ""
+        for line in lines[3:]:
+            encrypted_content += line + "\n"
+        encrypted_content = encrypted_content[:-1]
+        decrypted_content = decrypt(encrypted_content)
+        signal_strength = round(random.uniform(-100, -10), 2)
+        return Message(id=message_id,
+                       type=message_type,
+                       signal_strength=signal_strength,
+                       recipient_id=recipient_id,
+                       content=decrypted_content, )
+
+
+def get_formatted_command(command):
+    result = ""
+    for x in command:
+        result += x.replace(" ", "\\ ") + " "
+    return result[:-1]
+
+
+def run_command(command):
+    vprint(f"Running command: {get_formatted_command(command)}")
+    result = subprocess.run(command, capture_output=True)
+    if result.returncode != 0:
+        return None
+    return result.stdout.decode().strip()
+
+
+def read_file(filename):
+    output = ""
+    with open(filename) as file:
+        for line in file.readlines():
+            output += line
+    return output[:-1]
+
+
+def on_created(event):
+    path = event.src_path
+    print(f"New file detected: {path}")
+    try:
+        content = read_file(event.src_path)
+        vprint(f"Created {path} with {content}")
+        message = parse_message(path)
+        vprint(f"Received: {message}")
+        message.write_to_file(f"{RECEIVED_MESSAGES_FOLDER}{message.id}.txt")
+        print(f"Successfully received message with id {message.id}.")
+    except Exception as e:
+        print(f"Failed to parse message file ({e})")
+
+
+if __name__ == "__main__":
+    print("Launching DAB signal listener")
+    event_handler = PatternMatchingEventHandler(patterns="*", ignore_patterns="", ignore_directories=False,
+                                                case_sensitive=True)
+    event_handler.on_created = on_created
+
+    observer = Observer()
+    observer.schedule(event_handler, UNPROCESSED_MESSAGES_FOLDER, recursive=True)
+    observer.start()
+
+    print(f"Module ready to process appearing messages in {UNPROCESSED_MESSAGES_FOLDER}.")
+    try:
+        observer.join()  # starts folder listening thread within this thread or something
+    except KeyboardInterrupt:
+        print("Module stopped.")

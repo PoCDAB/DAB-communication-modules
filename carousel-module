@@ -1,0 +1,168 @@
+#!/usr/bin/env python
+"""
+TODO: whole file
+"""
+import argparse
+import os
+import subprocess
+
+# setup CLI parameters
+from dataclasses import dataclass
+
+parser = argparse.ArgumentParser(description="This module can send encrypted messages to a ship.")
+parser.add_argument("-i", "--ship-id", type=int, help="The ID of the ship to send the message to.")
+parser.add_argument("-t", "--message-type", type=int, help="The message type.")
+parser.add_argument("-m", "--message", help="The message to send")
+parser.add_argument("-v", "--verbose", help="Increase output verbosity.",
+                    action="store_true")
+args = parser.parse_args()
+
+
+# debug / verbose print function
+def vprint(*rgs, **kwrgs):
+    if args.verbose:
+        print(" ".join(map(str, rgs)), **kwrgs)
+
+
+# validate CLI parameters
+vprint("Running tool in verbose mode.")
+if args.ship_id is None:
+    print("No ship ID specified.")
+    quit(1)
+if args.message is None:
+    print("No message provided.")
+    quit(1)
+if args.message_type is None:
+    print("No message type provided.")
+    quit(1)
+
+
+def create_if_not_exist(folder_path):
+    if not os.path.isdir(folder_path):
+        vprint("Creating folder", folder_path)
+        os.makedirs(folder_path)
+
+
+def exists(path):
+    return os.path.exists(path)
+
+
+def to_file(filename, text):
+    with open(filename, "w") as file:
+        vprint(f"Writing to {filename}: {text}")
+        file.write(text)
+
+
+# folders
+FOLDER = os.path.expanduser("~/.dab/")
+create_if_not_exist(FOLDER)
+MESSAGE_ID_FILE = FOLDER + "message-id-count.txt"
+if not exists(MESSAGE_ID_FILE):
+    to_file(filename=MESSAGE_ID_FILE, text="1")
+
+SEND_MESSAGES_FOLDER = FOLDER + "send-messages/"
+create_if_not_exist(SEND_MESSAGES_FOLDER)
+KEY_FOLDER = FOLDER + "keys/"
+
+
+@dataclass
+class Message:
+    id: int
+    type: int
+    recipient_id: int
+    content: str
+
+    def as_string(self):
+        result = str(self.id) + "\n"
+        result += str(self.type) + "\n"
+        result += str(self.recipient_id) + "\n"
+        result += encrypt(get_key(self.recipient_id), self.content)
+        return result
+
+
+def read_file(filename):
+    output = ""
+    with open(filename) as file:
+        for line in file.readlines():
+            output += line + "\n"
+    return output[:-1]
+
+
+def get_message_id():
+    last_id = int(read_file(MESSAGE_ID_FILE))
+    new_id = last_id + 1
+    to_file(MESSAGE_ID_FILE, str(new_id))
+    return new_id
+
+
+def get_key(ship_id):
+    ship_id = str(ship_id)
+    vprint(f"Determining key for ship with id {ship_id}")
+    if not exists(KEY_FOLDER):
+        print(f"{KEY_FOLDER} does not exist.")
+        quit(1)
+
+    key_file = None
+    for entry in os.scandir(KEY_FOLDER):
+        if entry.name.startswith(ship_id):
+            key_file = entry.path
+            break
+
+    if key_file is None:
+        print(f"Could not find key file for ship with id {ship_id} in {KEY_FOLDER}.")
+        quit(1)
+
+    key = read_file(key_file).strip() # otherwise a newline at end, which breaks everything (gpg invalid passphrase)
+    vprint(f"Found key for ship {ship_id}: {key}")
+    return key
+
+
+def get_formatted_command(command):
+    result = ""
+    for x in command:
+        result += x.replace(" ", "\\ ") + " "
+    return result[:-1]
+
+
+def run_command(command):
+    vprint(f"Running command: {get_formatted_command(command)}")
+    result = subprocess.run(command, capture_output=True)
+    if result.returncode != 0:
+        print(result)
+        print(f"Invalid return code with: {get_formatted_command(command)}")
+        quit(1)
+    vprint("Command result:", result)
+    return result.stdout.decode()
+
+
+def encrypt(key, message):
+    vprint(f"Encrypting {message} with {key}")
+    command = ["./encryption-module", "--key", key, "--message", message, "--encrypt"]
+    encrypted_message = run_command(command)
+    if encrypted_message == "":
+        print(f"Encryption failed with empty result: {get_formatted_command(command)}")
+        quit(1)
+
+    vprint(f"Encryption result {encrypted_message}")
+    return encrypted_message
+
+
+def send(message):
+    vprint(f"Sending {message}")
+    message_path = SEND_MESSAGES_FOLDER + str(message.id) + ".txt"
+    vprint(f"Creating temporary file {message_path} to send.")
+    with open(message_path, "w") as file:
+        file.write(message.as_string())
+
+    command = ["./send-module", "--message", message_path, "--file"]
+    result = run_command(command)
+    vprint(f"Command output: {result}")
+    return True
+
+
+message = Message(id=get_message_id(), type=args.message_type, recipient_id=args.ship_id, content=args.message)
+if send(message):
+    print("Sent.")
+    quit(0)
+print("Fail.")
+quit(1)

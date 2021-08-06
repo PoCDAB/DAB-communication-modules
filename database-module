@@ -1,0 +1,69 @@
+#!/usr/bin/env python
+"""
+Retrieves a key associated with the ship id stored in the database, a folder in this case.
+Prints the key and exits with code 0 if found, else the exit code is 1.
+"""
+import argparse
+import os
+import subprocess
+
+# setup CLI parameters
+from dataclasses import dataclass
+
+parser = argparse.ArgumentParser(description="This module can access the database with keys.")
+parser.add_argument("-i", "--ship-id", type=int, help="The ID of the ship to get the key from.")
+parser.add_argument("-v", "--verbose", help="Increase output verbosity.",
+                    action="store_true")
+args = parser.parse_args()
+
+
+# debug / verbose print function
+def vprint(*rgs, **kwrgs):
+    if args.verbose:
+        print(" ".join(map(str, rgs)), **kwrgs)
+
+
+# validate CLI parameters
+vprint("Running tool in verbose mode.")
+if args.ship_id is None:
+    print("No ship ID specified.")
+    quit(1)
+
+# folders
+FOLDER = os.path.expanduser("~/.dab/")
+KEY_FOLDER = FOLDER + "keys/"
+
+
+def read_file(filename):
+    output = ""
+    with open(filename) as file:
+        for line in file.readlines():
+            output += line + "\n"
+    return output[:-1]
+
+
+def get_key(ship_id):
+    ship_id = str(ship_id)
+    vprint(f"Determining key for ship with id {ship_id}")
+    if not os.path.exists(KEY_FOLDER):
+        vprint(f"{KEY_FOLDER} does not exist.")
+        quit(1)
+
+    key_file = None
+    # check all files in key folder for matching ship id
+    for entry in os.scandir(KEY_FOLDER):
+        filename = entry.name.split(".")[0]  # shipid.txt -> shipid
+        if filename == ship_id:
+            key_file = entry.path
+            break
+
+    if key_file is None:
+        vprint(f"Could not find key file for ship with id {ship_id} in {KEY_FOLDER}.")
+        quit(1)
+
+    key = read_file(key_file).strip()  # strip the newline at the end which breaks gpg (invalid passphrase error)
+    return key
+
+
+key = get_key(args.ship_id)
+print(key)

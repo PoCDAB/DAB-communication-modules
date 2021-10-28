@@ -1,3 +1,25 @@
+#
+#    CFNS - Rijkswaterstaat CIV, Delft © 2020 - 2021 <cfns@rws.nl>
+#
+#    Copyright 2020 - 2021 Jort Stuijt <jort.stuyt@gmail.com>
+#
+#    This file is part of DAB-communication-modules
+#
+#    DAB-communication-modules is free software: you can redistribute it and/or
+#    modify it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    DAB-communication-modules is distributed in the hope that
+#    it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+#    warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#    See the GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with DAB-communication-modules.
+#    If not, see <https://www.gnu.org/licenses/>.
+#
+
 def get_key(ship_id):
     ship_id = str(ship_id)
     vprint(f"Determining key for ship with id {ship_id}")
